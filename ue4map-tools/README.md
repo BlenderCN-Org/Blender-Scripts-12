@@ -31,3 +31,7 @@
 	- Script can't reliably read anything except Diffuse and Normal.
 		- No consistent naming convention exists. For Hogwarts Legacy, you may find _SRXO and _MRO files for Specular/Metallic, Roughness and Occlusion, but there is no automatic matching for this.
 	
+## Credits
+- Aetheras Veras (main script)
+- Ganonmaster (refactoring)
+- AmmoBlender (testing)
