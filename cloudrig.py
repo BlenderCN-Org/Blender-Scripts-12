@@ -1,5 +1,5 @@
-"Version: 2.6"
-"Date: 04/07/19 (Last updated for Alice)"
+"Version: 1.1"
+"05/07/19"
 
 import bpy
 from bpy.props import *
@@ -7,13 +7,23 @@ from mathutils import Vector
 import time
 import webbrowser
 
-# Witcher3 Hairs
-	# We'll probably want to rename hairs, eg. from "Ciri_Default" to "Hair_Long_03" or whatever, since hairs aren't unique to a single character.
+#TODO:
+# Physics settings should only show up if a Physics collection is specified in the armature's custom properties. This could be called 'phys_collection'.
+# Instead of checking for any collection named 'phys' belonging to the armature's collection(which is super dirty), we should check for any collection in the scene matching the value of that custom property.
+
+# Modularity
+# The rig script and UI should start functioning as soon as the metsrig custom property is added to the armature.
+# Every other information should be able to be provided without the rig creator having to hard code it(although some python syntax will probably have to be used in the custom properties), such as characters, outfits, bone layer names and layout(TODO).
+
+# Constraints
+# TODO: If a constraint has multiple "names" but is meant to have an influence other than 0 or 1, and only its visibility should be toggled, the influence gets changed anyways.
+# Might need to do a thing where the constraint name is instead an expression for the influence. This would make more sense considering other things as well.
+# Alternatively, these constraints could just have a driver on their influence that forces it to a constant value.
+# But at that point, we might as well just have a driver on the influence that sets the damn influence. But that wouldn't align with the modular design of the rig which is still WIP.
 
 # prop_hierarchy: allow for nested children
 # Objects should be responsible for enabling mask vertex groups on the body(or everything), as opposed to the vertex groups being responsible for enabling themselves based on rig properties.
 #	Except some objects get masked to make other versions of themselves, so some objects would have multiple masks to enable depending on rig properties.
-
 
 # Optimization
 	# Could try limiting update_meshes() and update_node_values() to only worry about changed properties.
@@ -37,6 +47,16 @@ def get_children_recursive(obj, ret=[]):
 			ret.append(c)
 		ret = get_children_recursive(c, ret)
 	
+	return ret
+
+
+def get_rigs():
+	""" Find all MetsRigs in the current view layer. """
+	ret = []
+	armatures = [o for o in bpy.context.view_layer.objects if o.type=='ARMATURE']
+	for o in armatures:
+		if("metsrig") in o.data:
+			ret.append(o)
 	return ret
 
 class MetsRig_BoolProperties(bpy.types.PropertyGroup):
@@ -68,26 +88,16 @@ class MetsRig_Properties(bpy.types.PropertyGroup):
 	# PropertyGroup for storing MetsRig related properties in.
 	# Character and Outfit specific properties will still be stored in their relevant Properties bones (eg. Properties_Outfit_Ciri_Default).
 	
-	@staticmethod
-	def get_rigs():
-		""" Find all MetsRigs in the current view layer. """
-		ret = []
-		armatures = [o for o in bpy.context.view_layer.objects if o.type=='ARMATURE']
-		for o in armatures:
-			if("metsrig") in o.data:
-				ret.append(o)
-		return ret
-	
 	def get_rig(self):
 		""" Find the rig that is using this instance. """
-		for rig in self.get_rigs():
+		for rig in get_rigs():
 			if(rig.data.metsrig_properties == self):
 				return rig
 	
 	@classmethod
 	def pre_depsgraph_update(cls, scene):
 		""" Runs before every depsgraph update. Is used to handle user input by detecting changes in the rig properties. """
-		for rig in cls.get_rigs():
+		for rig in get_rigs():
 			# Grabbing relevant data
 			mets_props = rig.data.metsrig_properties
 			character_bone = rig.pose.bones.get("Properties_Character_"+mets_props.metsrig_chars)
@@ -111,12 +121,12 @@ class MetsRig_Properties(bpy.types.PropertyGroup):
 			
 			if(character_bone):
 				save_props(character_bone, 0)
-			else:
-				print("Warning: Character bone for " + mets_props.metsrig_chars + " not found. It needs to be named 'Properties_Character_CharName'.")
+			#else:
+			#	print("Warning: Character bone for " + mets_props.metsrig_chars + " not found. It needs to be named 'Properties_Character_CharName'.")
 			if(outfit_bone):
 				save_props(outfit_bone, 1)
-			else:
-				print("Warning: Outfit bone for " + mets_props.metsrig_outfits + " not found. It should be named 'Properties_Outfit_OutfitName' and its parent should be the character bone.")
+			#else:
+			#	print("Warning: Outfit bone for " + mets_props.metsrig_outfits + " not found. It should be named 'Properties_Outfit_OutfitName' and its parent should be the character bone.")
 			save_props(rig.data, 2)
 			
 			# Retrieving the list of dictionaries from the ID Property - have to use to_dict() on each dictionary due to the way ID properties... are.
@@ -140,7 +150,7 @@ class MetsRig_Properties(bpy.types.PropertyGroup):
 	@classmethod
 	def post_depsgraph_update(cls, scene):
 		"""Runs after every depsgraph update. If any user input to the rig properties was detected by pre_depsgraph_update(), this will call update_meshes(). """
-		for rig in cls.get_rigs():
+		for rig in get_rigs():
 			if(rig.data['update'] == 1):
 				rig.data.metsrig_properties.update_meshes(bpy.context)
 				rig.data['update'] = 0
@@ -478,22 +488,18 @@ class MetsRig_Properties(bpy.types.PropertyGroup):
 				not_proxy_name = o.name.split("_Proxy")[0]
 				not_proxy = next((x for x in objs if x.name == not_proxy_name), None)
 				if(not_proxy):
-					if(not_proxy.hide_viewport):		# If the base object is hidden to begin with, the proxy should also be hidden.
+					if(not_proxy.hide_viewport):			# If the base object is hidden to begin with, the proxy should also be hidden.
 						o.hide_viewport = True
-					else:						# If the base object is visible
-						if(use_proxy):			# And proxy is enabled
-							not_proxy.hide_viewport = True # Hide the base object
-							o.hide_viewport = False # Unhide the proxy
+					else:									# If the base object is visible
+						if(use_proxy):						# And proxy is enabled
+							not_proxy.hide_viewport = True 	# Hide the base object
+							o.hide_viewport = False 		# Unhide the proxy
 				else:
 					print("Warning: Proxy object has no base object: " + o.name)
 					o.hide_viewport = True
 
 	def update_meshes(self, context):
 		""" Executes the cloth swapping system by updating object visibilities, mask vertex groups and shape key values. """
-		
-		# TODO: This is kind of in a weird place here. It belongs more in change_character() or change_outfit(), but I think putting it there causes an infinite loop of depsgraph update triggers. TODO: Still? So I'm calling it from here because post_depsgraph_update calls update_meshes.
-		# TODO: The only reason it's weird is because it's weird that we're giving special treatment to specifically body shape keys. Maybe at some point, when we need to, we can allow for any kind of shape key selector to be thrown into the UI, or generic shape keys to be assigned to characters/outfits, or something like that...
-		self.update_body_type(context)
 		
 		def do_child(rig, obj, hide=None):
 			# Recursive function to control item visibilities.
@@ -632,7 +638,11 @@ class MetsRig_Properties(bpy.types.PropertyGroup):
 		items = []
 		for i, outfit in enumerate(outfits):
 			items.append((outfit, outfit, outfit, i))	# Identifier, name, description, can all be the character name.
-			
+		
+		# If no outfits were found, don't return an empty list so the console doesn't spam "'0' matches no enum" warnings.
+		if(items==[]):
+			return [(('identifier', 'name', 'description'))]
+		
 		return items
 	
 	def chars(self, context):
@@ -642,6 +652,11 @@ class MetsRig_Properties(bpy.types.PropertyGroup):
 		for char in chars:
 			if(char=='Generic'): continue
 			items.append((char, char, char))
+		
+		# If no characters were found, don't return an empty list so the console doesn't spam "'0' matches no enum" warnings.
+		if(items==[]):
+			return [(('identifier', 'name', 'description'))]
+		
 		return items
 	
 	def hairs(self, context):
@@ -661,24 +676,6 @@ class MetsRig_Properties(bpy.types.PropertyGroup):
 		for hair in hairs:
 			items.append((hair, hair, hair))
 		return items
-	
-	def update_body_type(self, context):
-		""" Currently used to update body shape keys. """
-		
-		# TODO: come up with a flexible solution for adding shape keys to the UI.
-		rig = self.get_rig()
-		char_bone = rig.pose.bones.get("Properties_Character_"+self.metsrig_chars)
-		outfit_bone = rig.pose.bones.get("Properties_Outfit_"+self.metsrig_outfits)
-		
-		bodies = [o for o in rig.children if "Witcher3_Female_Body" in o.name]	# TODO: Make this not Witcher specific.
-		for body in bodies:
-			body_shapekeys = [sk for sk in body.data.shape_keys.key_blocks if sk.name.startswith("body_")]
-			
-			for bsk in body_shapekeys:
-				if( bsk.name == "body_" + str(rig.data['body']) ):
-					bsk.value = 1
-				else:
-					bsk.value = 0
 	
 	def update_material_controller(self, bone):
 		# Updating material controller with this character's values.
@@ -880,38 +877,6 @@ class MetsRig_Properties(bpy.types.PropertyGroup):
 		default=1,
 		update=update_physics,
 		min=1, max=1048574)
-
-	def update_shrinkwrap_targets(self, context):
-		""" Update the target object of any Shrinkwrap constraints named "Shrinkwrap_Anus" or "Shrinkwrap_Vagina", to match the object selected in the UI. """
-		
-		rig = self.get_rig()
-	
-		target_anus = self.shrinkwrap_target_anus
-		target_vagina = self.shrinkwrap_target_vagina
-		
-		# Dictionary to map the expected constraint name on a bone to the shrinkwrap target.
-		# eg. Anus bones are expected to have a constraint called "shrinkwrap_anus".
-		targets = {"shrinkwrap_anus" : target_anus,
-					"shrinkwrap_vagina" : target_vagina }
-		
-		for b in rig.pose.bones:
-			for c in b.constraints:
-				if(c.type=='SHRINKWRAP'):
-					for target_string in targets.keys():
-						if( c.name.lower() == target_string ):
-							c.target = targets[target_string]
-	
-	shrinkwrap_target_anus: PointerProperty(
-		name='Sticky Anus Target',
-		description = 'Select object to which the anus should stick to. Warning: Can cause serious hit to performance',
-		type=bpy.types.Object,
-		update=update_shrinkwrap_targets)
-	
-	shrinkwrap_target_vagina: PointerProperty(
-		name='Sticky Vagina Target',
-		description = 'Select object to which the vagina should stick to. Warning: Can cause serious hit to performance',
-		type=bpy.types.Object,
-		update=update_shrinkwrap_targets)
 	
 	def update_render_modifiers(self, context):
 		""" Callback function for render_modifiers. Toggles SubSurf, Solidify, Bevel modifiers according to input from the UI. """
@@ -940,34 +905,50 @@ class MetsRig_Properties(bpy.types.PropertyGroup):
 		name='use_proxy',
 		description='Use Proxy Meshes',
 		update=update_meshes)
-	
+
 	def update_ik(self, context):
-		""" Callback function for FK/IK switch values.
-			For this to work:
-			IK constraints are expected to be named according to the 'ik_prop_names' list.
-			Finger bones are expected to be named according to the 'finger_names' list.
+		""" Callback function for FK/IK settings.
+			For this to work (All case-insensitive):
+			Constraints must be named according to the property names they should be toggled by.
+			A constraint can have more than one name, separated by a comma and a space, eg. "ik_stretch_arms, ik_arm_left". The behaviour will be like an AND statement, so the constraint is only enabled when both properties are enabled. (This is WIP, and the final form of this will probably end up being slapping expressions into constraint names...)
+			Finger IK constraints must be named according to the 'finger_names' list and ending in .L/.R, eg. "Thumb_IK.L".
+			Hinge IK constraints must be named according to the 'hinge_prop_names'.
 		"""
-		
 		rig = self.get_rig()
 		
-		ik_prop_names = ["ik_spine", "ik_arm_left", "ik_arm_right", "ik_leg_left", "ik_leg_right", "ik_fingers_left", "ik_fingers_right"]
 		finger_names = ["thumb", "index", "middle", "ring", "pinky"]
 		for b in rig.pose.bones:
 			for c in b.constraints:
-				name = c.name.lower()
+				# Handling the constraint name as an expression, where any metsrig property name can be referenced by its name.
+				expression = c.name.lower()
+				
+				# For fingers, when per-finger IK is disabled, we want to replace them with the overall fingers_left/right variable
 				if(not self.ik_per_finger):
 					for fn in finger_names:
-						if(fn in name):
-							if("_ik.l" in name):
-								name = "ik_fingers_left"
+						if(fn in expression):
+							if("_ik.l" in expression):
+								expression = expression.replace(fn+"_ik.l", "ik_fingers_left")
 							elif("_ik.r" in name):
-								name = "ik_fingers_right"
-							#continue	# TODO is this break right?
+								expression = expression.replace(fn+"_ik.R", "ik_fingers_right")
 							break
-				if(name in ik_prop_names):
-					c.influence = getattr(self, name)
+				
+				# Replacing variable names with their values
+				metsprops = rig.data.metsrig_properties
+				for k in metsprops.keys():
+					expression = expression.replace(k, str(metsprops[k]))
+				
+				# Evaluating the expression and setting the constraint influence to the result
+				try:
+					result = eval(expression)
+					c.influence = result
+					c.mute = result <= 0
+				except:
+					pass	# Most constraints will fail, since most constraints don't have expressions in their names. This makes error handling, well, non-existent, which is not ideal. TODO.
+				
 	
-	### FK/IK Properties
+	### FK/IK Properties ###
+
+	### FK/IK Switches
 	ik_spine: FloatProperty(
 		name='FK/IK Spine',
 		default=0,
@@ -1011,6 +992,98 @@ class MetsRig_Properties(bpy.types.PropertyGroup):
 		name='Per Finger',
 		description='Control Ik/FK on individual fingers',
 		update=update_ik)
+	
+	### IK Stretch
+	ik_stretch_arms: BoolProperty(
+		name='Stretchy Arms',
+		description='Ik Stretch Arms',
+		update=update_ik)
+	ik_stretch_legs: BoolProperty(
+		name='Stretchy Legs',
+		description='Ik Stretch Legs',
+		update=update_ik)
+	ik_stretch_spine: FloatProperty(
+		name='Stretchy Spine',
+		description='Ik Stretch Spine',
+		min=0,
+		max=1,
+		update=update_ik)
+
+	# IK Hinge
+	ik_hinge_hand_left: BoolProperty(
+		name='Left Hand Hinge',
+		description='Left Hand Hinge',
+		update=update_ik)
+	ik_hinge_hand_right: BoolProperty(
+		name='Right Hand Hinge',
+		description='Right Hand Hinge',
+		update=update_ik)
+	
+	ik_hinge_foot_left: BoolProperty(
+		name='Left Foot Hinge',
+		description='Left Foot Hinge',
+		update=update_ik)
+	ik_hinge_foot_right: BoolProperty(
+		name='Right Foot Hinge',
+		description='Right Foot Hinge',
+		update=update_ik)
+	
+	# IK Auto Clavicle
+	ik_auto_clav_left: BoolProperty(
+		name='Left Automatic IK Clavicle',
+		description='Left Automatic IK Clavicle',
+		update=update_ik)
+	ik_auto_clav_right: BoolProperty(
+		name='Right Automatic IK Clavicle',
+		description='Right Automatic IK Clavicle',
+		update=update_ik)
+	
+	# IK Pole Follow
+	ik_pole_follow_hands: FloatProperty(
+		name='IK Poles Follow Hands',
+		description='IK Poles Follow Hands',
+		min=0,
+		max=1,
+		update=update_ik)
+	ik_pole_follow_feet: FloatProperty(
+		name='IK Poles Follow Feet',
+		description='IK Poles Follow Feet',
+		min=0,
+		max=1,
+		update=update_ik)
+
+	# IK Parents (These values are currently just used by drivers on Child Of constraints, since update_ik() doesn't support integer checks atm.)
+	ik_parents_arm_left: IntProperty(
+		name='Left Arm IK Parent',
+		description='Cycle between Left Arm IK Parents',
+		min=0,
+		max=3)
+	ik_parents_arm_right: IntProperty(
+		name='Right Arm IK Parent',
+		description='Cycle between Right Arm IK Parents',
+		min=0,
+		max=3)
+	ik_parents_leg_left: IntProperty(
+		name='Left Leg IK Parent',
+		description='Cycle between Left Leg IK Parents',
+		min=0,
+		max=3)
+	ik_parents_leg_right: IntProperty(
+		name='Right Leg IK Parent',
+		description='Cycle between Right Leg IK Parents',
+		min=0,
+		max=3)
+	
+	# Head Look
+	head_look: BoolProperty(
+		name='Head Look',
+		description='Head Look',
+		update=update_ik)
+	head_target_parents: IntProperty(
+		name='Head Target Parent',
+		description='Cycle between Head Target Parents',
+		min=0,
+		max=2)
 
 class MetsRigUI(bpy.types.Panel):
 	bl_space_type = 'VIEW_3D'
@@ -1020,22 +1093,40 @@ class MetsRigUI(bpy.types.Panel):
 	@classmethod
 	def poll(cls, context):
 		if(context.object != None and
-			context.object in MetsRig_Properties.get_rigs()):
+			context.object in get_rigs()):
 				return True
+		return False
 	
-	@staticmethod
-	def safe_prop(ui, data, property, text="", text_ctxt="", translate=True, icon='NONE', expand=False, slider=False, toggle=False, icon_only=False, event=False, full_event=False, emboss=True, index=-1, icon_value=0):
-		""" For calling layout.prop() without raising an exception if the property doesn't exist. """
-		
-		if(hasattr(data, property) or property[2:-2] in data):
-			if(text!=""):	# Passing an empty string into prop(text) is not the same as not passing anything.
-				return ui.prop(data, property, text=text, text_ctxt=text_ctxt, translate=translate, icon=icon, expand=expand, slider=slider, toggle=toggle, icon_only=icon_only, event=event, full_event=full_event, emboss=emboss, index=index, icon_value=icon_value)
-			else:
-				return ui.prop(data, property, text_ctxt=text_ctxt, translate=translate, icon=icon, expand=expand, slider=slider, toggle=toggle, icon_only=icon_only, event=event, full_event=full_event, emboss=emboss, index=index, icon_value=icon_value)
-		
+	def draw(self, context):
+		layout = self.layout
+
 class MetsRigUI_Properties(MetsRigUI):
 	bl_idname = "OBJECT_PT_metsrig_ui_properties"
 	bl_label = "Outfits"
+
+	@classmethod
+	def poll(cls, context):
+		if(not super().poll(context)):
+			return False
+		# Only display this panel if there is either an outfit with options, multiple outfits, or multiple characters.
+		obj = context.object
+		data = obj.data
+		mets_props = data.metsrig_properties
+		bool_props = data.metsrig_boolproperties
+		multiple_chars = len(mets_props.chars(context)) > 1	# Whether the rig has multiple characters. If not, we won't display Character and OutfitSet menus.
+		multiple_outfits = len(mets_props.outfits(context)) > 1
+		outfit_properties_bone = obj.pose.bones.get("Properties_Outfit_"+mets_props.metsrig_outfits)
+		character_properties_bone = obj.pose.bones.get("Properties_Character_"+mets_props.metsrig_chars)
+		outfit_properties_exist = False
+		character_properties_exist = False
+		if(outfit_properties_bone):
+			keys = [k for k in outfit_properties_bone.keys() if not k.startswith("_")]
+			outfit_properties_exist = len(keys) > 0
+		if(character_properties_bone):
+			keys = [k for k in character_properties_bone.keys() if not k.startswith("_")]
+			character_properties_exist = len(keys) > 0
+
+		return multiple_chars or multiple_outfits or outfit_properties_exist or character_properties_exist
 
 	def draw(self, context):
 		layout = self.layout
@@ -1045,7 +1136,7 @@ class MetsRigUI_Properties(MetsRigUI):
 		bool_props = data.metsrig_boolproperties
 		
 		character = mets_props.metsrig_chars
-		multiple_chars = len(mets_props.chars(context)) > 1	# Whether the rig has multiple characters. If not, we won't display Character and OutfitSet menus.
+		multiple_chars = len(mets_props.chars(context)) > 1
 		
 		character_properties_bone = obj.pose.bones.get("Properties_Character_"+character)
 		outfitset = mets_props.metsrig_sets
@@ -1062,6 +1153,7 @@ class MetsRigUI_Properties(MetsRigUI):
 				It needs to be a string:list_of_strings dictionary, where string is the parent and list_of_strings are the children.
 				For example this is the prop_hierarchy of the outfit "Ciri_Default":
 				{"Corset" : ["Back_Pouch", "Belt_Medallion", "Dagger", "Front_Pouch", "Squares"], "Hood-23" : ["Coat"]}
+				(The Coat child of Hood only shows up when Hood is 2 or 3) - TODO This is pretty messy
 			"""
 		
 			# Drawing properties with hierarchy
@@ -1123,7 +1215,6 @@ class MetsRigUI_Properties(MetsRigUI):
 		if( character_properties_bone != None ):
 			add_props(character_properties_bone)
 			layout.separator()
-		
 
 		if(multiple_chars):
 			layout.prop(mets_props, 'metsrig_sets')
@@ -1145,42 +1236,46 @@ class MetsRigUI_Layers(MetsRigUI):
 		row_ik.column().prop(data, 'layers', index=0, toggle=True, text='Main IK Controls')
 		row_ik.column().prop(data, 'layers', index=16, toggle=True, text='Secondary IK Controls')
 		
-		layout.row().prop(data, 'layers', index=1, toggle=True, text='Main FK Controls')
+		layout.row().prop(data, 'layers', index=1, toggle=True, text='FK Controls')
+		layout.row().prop(data, 'layers', index=2, toggle=True, text='Stretch Controls')
 		
 		row_face = layout.row()
-		row_face.column().prop(data, 'layers', index=2, toggle=True, text='Face Controls')
-		row_face.column().prop(data, 'layers', index=18, toggle=True, text='Face Deform')
+		row_face.column().prop(data, 'layers', index=3, toggle=True, text='Face Controls')
+		#row_face.column().prop(data, 'layers', index=19, toggle=True, text='Face Deform')
 		
 		row_fingers = layout.row()
-		row_fingers.column().prop(data, 'layers', index=3, toggle=True, text='Finger Controls')
-		row_fingers.column().prop(data, 'layers', index=19, toggle=True, text='Finger Deform')
+		row_fingers.column().prop(data, 'layers', index=21, toggle=True, text='Finger FK')
+		row_fingers.column().prop(data, 'layers', index=22, toggle=True, text='Finger IK')
+		row_fingers.column().prop(data, 'layers', index=23, toggle=True, text='Finger Stretch')
 		
-		layout.row().prop(data, 'layers', index=4, toggle=True, text='Genitals')
-		
-		layout.row().prop(data, 'layers', index=9, toggle=True, text='Clothes')
-		layout.row().prop(data, 'layers', index=10, toggle=True, text='Hair')
-		
-		layout.separator()
-		
-		layout.row().prop(data, 'layers', index=29, toggle=True, text='IK Mechanism')
+		layout.row().prop(data, 'layers', index=5, toggle=True, text='Hair')
+		layout.row().prop(data, 'layers', index=6, toggle=True, text='Clothes')
 		
 		layout.separator()
-		
-		row_deform = layout.row()
-		row_deform.prop(data, 'layers', index=30, toggle=True, text='Deform Main')
-		row_deform.prop(data, 'layers', index=31, toggle=True, text='Deform Secondary')
-		row_deform.prop(data, 'layers', index=28, toggle=True, text='Deform Unused')
+		if(False):
+			dev_box = layout.box()
 
-class MetsRigUI_FKIK(MetsRigUI):
+			dev_box.row().prop(data, 'layers', index=29, toggle=True, text='IK Mechanism')
+			
+			row_deform = dev_box.row()
+			row_deform.prop(data, 'layers', index=30, toggle=True, text='Deform Main')
+			row_deform.prop(data, 'layers', index=31, toggle=True, text='Deform Adjust')
+
+class MetsRigUI_IKFK(MetsRigUI):
 	bl_idname = "OBJECT_PT_metsrig_ui_ik"
-	bl_label = "FK/IK"
+	bl_label = "FK/IK Settings"
 	
 	def draw(self, context):
 		layout = self.layout
-		
+		column = layout.column()
 		rig = context.object
 		mets_props = rig.data.metsrig_properties
 		
+		# TODO improve the overall organization for all these buttons.
+		
+		### FK/IK Switch Sliders
+		layout.label(text='FK/IK Switches')
+
 		# Spine
 		layout.row().prop(mets_props, 'ik_spine', slider=True, text='Spine')
 		
@@ -1207,12 +1302,12 @@ class MetsRigUI_FKIK(MetsRigUI):
 					found=False
 					for b in rig.pose.bones:
 						for c in b.constraints:
-							if(c.name.lower() == cn+sn):
-								clean_name = c.name.lower().capitalize()
+							if(cn+sn in c.name.lower()):
+								clean_name = cn+sn
 								if(clean_name.endswith("_ik.l")):
-									clean_name = "L " + clean_name.replace("_ik.l", "")
+									clean_name = "L " + clean_name.replace("_ik.l", "").capitalize()
 								if(clean_name.endswith("_ik.r")):
-									clean_name = "R " + clean_name.replace("_ik.r", "")
+									clean_name = "R " + clean_name.replace("_ik.r", "").capitalize()
 								finger_row.prop(c, 'influence', slider=True, text=clean_name)
 								found=True
 								break
@@ -1223,6 +1318,79 @@ class MetsRigUI_FKIK(MetsRigUI):
 			fingers_row.prop(mets_props, 'ik_fingers_left', slider=True)
 			fingers_row.prop(mets_props, 'ik_fingers_right', slider=True)
 		
+		# IK Stretch
+		layout.label(text='IK Stretch')
+		layout.row().prop(mets_props, 'ik_stretch_spine', slider=True, text='Stretchy Spine')
+		layout.row().prop(mets_props, 'ik_stretch_arms', toggle=True, text='Stretchy Arms')
+		layout.row().prop(mets_props, 'ik_stretch_legs', toggle=True, text='Stretchy Legs')
+
+		# IK Hinge
+		layout.label(text='IK Hinge')
+		hand_row = layout.row()
+		hand_row.column().prop(mets_props, 'ik_hinge_hand_left', toggle=True, text='Left Hand')
+		hand_row.column().prop(mets_props, 'ik_hinge_hand_right', toggle=True, text='Right Hand')
+		foot_row = layout.row()
+		foot_row.column().prop(mets_props, 'ik_hinge_foot_left', toggle=True, text='Left Foot')
+		foot_row.column().prop(mets_props, 'ik_hinge_foot_right', toggle=True, text='Right Foot')
+
+		# FK Hinge
+		left_fk_shoulder_bone = rig.data.bones.get('FK-Shoulder.L')
+		left_fk_thigh_bone = rig.data.bones.get('FK-Thigh.L')
+		right_fk_shoulder_bone = rig.data.bones.get('FK-Shoulder.R')
+		right_fk_thigh_bone = rig.data.bones.get('FK-Thigh.R')
+		if(right_fk_shoulder_bone or right_fk_thigh_bone or left_fk_shoulder_bone or left_fk_thigh_bone):
+			layout.label(text='FK Hinge')
+			if(left_fk_shoulder_bone or right_fk_shoulder_bone):
+				arm_row = layout.row()
+				if(left_fk_shoulder_bone):
+					arm_row.column().prop(left_fk_shoulder_bone, 'use_inherit_rotation', toggle=True, text='Left Arm')
+				if(right_fk_shoulder_bone):
+					arm_row.column().prop(right_fk_shoulder_bone, 'use_inherit_rotation', toggle=True, text='Right Arm')
+			if(left_fk_thigh_bone or right_fk_thigh_bone):
+				leg_row = layout.row()
+				if(left_fk_thigh_bone):
+					leg_row.column().prop(left_fk_thigh_bone, 'use_inherit_rotation', toggle=True, text='Left Leg')
+				if(right_fk_thigh_bone):
+					leg_row.column().prop(right_fk_thigh_bone, 'use_inherit_rotation', toggle=True, text='Right Leg')
+
+		# IK Auto Clavicle
+		layout.label(text='IK Auto Clavicle')
+		hand_row = layout.row()
+		hand_row.column().prop(mets_props, 'ik_auto_clav_left', toggle=True, text='Left Clavicle')
+		hand_row.column().prop(mets_props, 'ik_auto_clav_right', toggle=True, text='Right Clavicle')
+
+		# IK Parents
+		layout.label(text='IK Parents')
+		arm_parent_row = layout.row()
+		arm_parents = ['Root', 'Pelvis', 'Chest', 'Arm']
+		arm_parent_row.column().prop(mets_props, 'ik_parents_arm_left', slider=True, text='Left Hand ['+arm_parents[mets_props.ik_parents_arm_left] + "]")
+		arm_parent_row.column().prop(mets_props, 'ik_parents_arm_right', slider=True, text='Right Hand ['+arm_parents[mets_props.ik_parents_arm_right] + "]")
+		leg_parent_row = layout.row()
+		leg_parents = ['Root', 'Pelvis', 'Hips', 'Leg']
+		leg_parent_row.column().prop(mets_props, 'ik_parents_leg_left', slider=True, text='Left Foot ['+leg_parents[mets_props.ik_parents_leg_left] + "]")
+		leg_parent_row.column().prop(mets_props, 'ik_parents_leg_right', slider=True, text='Right Foot ['+leg_parents[mets_props.ik_parents_leg_right] + "]")
+
+		# IK Pole Follow
+		layout.label(text='IK Pole Follow')
+		pole_row = layout.row()
+		pole_row.column().prop(mets_props, 'ik_pole_follow_hands', slider=True, text='Arms')
+		pole_row.column().prop(mets_props, 'ik_pole_follow_feet', slider=True, text='Legs')
+
+		# Head & Neck Settings
+		layout.label(text='Head Settings')
+		head_bone = rig.data.bones.get("AIM-Head")
+		neck_bone = rig.data.bones.get("DEF-Neck")
+		head_pose_bone = rig.pose.bones.get("AIM-Head")
+		aim_constraint = head_pose_bone.constraints.get('head_look')
+		if(neck_bone):
+			layout.row().prop(neck_bone, 'use_inherit_rotation', toggle=True, text='Neck Hinge')
+		if(head_bone):
+			layout.row().prop(head_bone, 'use_inherit_rotation', toggle=True, text='Head Hinge')
+			if(aim_constraint):
+				layout.row().prop(mets_props, 'head_look', toggle=True, text='Head Look')
+		head_parents = ['Root', 'Pelvis', 'Chest', 'Neck', 'Head']
+		layout.row().prop(mets_props, 'head_target_parents', slider=True, text='Head Target Parent ['+head_parents[mets_props.head_target_parents] + "]")
+
 class MetsRigUI_Extras(MetsRigUI):
 	bl_idname = "OBJECT_PT_metsrig_ui_extras"
 	bl_label = "Extras"
@@ -1233,19 +1401,8 @@ class MetsRigUI_Extras(MetsRigUI):
 		mets_props = data.metsrig_properties
 		bool_props = data.metsrig_boolproperties
 		
-		layout.row().prop(mets_props, 'metsrig_hairs')
-		
-		if("body" in data):
-			layout.separator()
-			layout.row().prop(data, '["body"]', toggle=True, text='Body Type')
-		
-		layout.separator()
-		if('anus_shrinkwrap' in data):
-			layout.prop(mets_props, 'shrinkwrap_target_anus', text='Anus Wrap')
-		if('vagina_shrinkwrap' in data):
-			layout.prop(mets_props, 'shrinkwrap_target_vagina', text='Vagina Wrap')
-		
-		layout.separator()
+		#layout.row().prop(mets_props, 'metsrig_hairs')
+		#layout.separator()
 		
 		show_all_meshes = mets_props.show_all_meshes
 		layout.row().prop(mets_props, 'show_all_meshes', text='Enable All Meshes', toggle=True)
@@ -1259,6 +1416,16 @@ class MetsRigUI_Extras_Materials(MetsRigUI):
 	bl_label = "Materials"
 	bl_parent_id = "OBJECT_PT_metsrig_ui_extras"
 	
+	@classmethod
+	def poll(cls, context):
+		if(not super().poll(context)):
+			return False
+		rig = context.object
+		if('material_controller' not in rig.data):
+			return False
+		mat_ctr_name = rig.data['material_controller']
+		return bpy.data.node_groups.get(str(mat_ctr_name)) != None
+		
 	def draw(self, context):
 		layout = self.layout
 		data = context.object.data
@@ -1277,7 +1444,7 @@ class MetsRigUI_Extras_Materials(MetsRigUI):
 
 class MetsRigUI_Extras_Physics(MetsRigUI):
 	bl_idname = "OBJECT_PT_metsrig_ui_extras_physics"
-	bl_label = "Physics (WIP)"
+	bl_label = "Physics"
 	bl_parent_id = "OBJECT_PT_metsrig_ui_extras"
 	
 	def draw_header(self, context):
@@ -1320,31 +1487,32 @@ class Link_Button(bpy.types.Operator):
 		webbrowser.open_new(self.url) # opens in default browser
 		return {'FINISHED'}
 
-class MetsRigUI_Support(MetsRigUI):
+class MetsRigUI_Links(MetsRigUI):
 	bl_idname = "OBJECT_PT_metsrig_ui_support"
 	bl_label = "Links"
 	
-	url_patreon = "https://www.patreon.com/Metssfm"
-	url_twitter = "https://twitter.com/Mets3D"
-	url_smutbase = "https://smutba.se/user/6/"
+	url_cloud = "https://cloud.blender.org/welcome"
+	url_dev_fund = "https://fund.blender.org/"
+	url_dev_blog = "https://code.blender.org/"
+	url_blender_chat = "https://blender.chat/"
 	
 	def draw(self, context):
 		layout = self.layout
 		
-		layout.operator('ops.open_link', text="Patreon").url = self.url_patreon
-		layout.operator('ops.open_link', text="Twitter").url = self.url_twitter
-		layout.separator()
-		layout.operator('ops.open_link', text="SmutBase").url = self.url_smutbase
+		layout.operator('ops.open_link', text="Blender Cloud").url = self.url_cloud
+		layout.operator('ops.open_link', text="Blender Dev Fund").url = self.url_dev_fund
+		layout.operator('ops.open_link', text="Blender Dev Blog").url = self.url_dev_blog
+		layout.operator('ops.open_link', text="Blender Chat").url = self.url_blender_chat
 	
 classes = (
 	MetsRigUI_Properties, 
 	MetsRigUI_Layers, 
-	MetsRigUI_FKIK, 
+	MetsRigUI_IKFK, 
 	MetsRigUI_Extras, 
 	MetsRigUI_Extras_Materials, 
 	MetsRigUI_Extras_Physics, 
 	Link_Button, 
-	MetsRigUI_Support, 
+	MetsRigUI_Links, 
 	MetsRig_Properties, 
 	MetsRig_BoolProperties
 )
