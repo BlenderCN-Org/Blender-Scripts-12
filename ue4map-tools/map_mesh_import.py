@@ -94,9 +94,12 @@ class StaticMesh:
         
         objpath = split_object_path(object_path)
         self.import_path = base_dir + asset_sub_dir + objpath + ".gltf"
-        print('Mesh Path', self.import_path)
         self.no_file = not os.path.exists(self.import_path)
-
+        if self.no_file: 
+            self.import_path = base_dir + asset_sub_dir + objpath + "_LOD0.glb"
+            self.no_file = not os.path.exists(self.import_path)
+        print('Mesh Path', self.import_path)
+        
         if props.get("RelativeLocation", False):
             pos = props.get("RelativeLocation")
             self.pos = [pos.get("X")/100,pos.get("Y")/-100,pos.get("Z")/100]
